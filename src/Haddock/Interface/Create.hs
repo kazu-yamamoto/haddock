@@ -452,13 +452,12 @@ mkExportItems
 
     declWith :: Name -> ErrMsgGhc [ ExportItem Name ]
     declWith t =
-      let (doc, subs) = exportDecl t docMap argMap subMap in
       case findDecl t of
-        [L _ (ValD _)] -> do
+        ([L _ (ValD _)], (doc, _)) -> do
           -- Top-level binding without type signature
           export <- hiValExportItem t doc
           return [export]
-        ds | decl : _ <- filter (not . isValD . unLoc) ds ->
+        (ds, docs_) | decl : _ <- filter (not . isValD . unLoc) ds ->
           let declNames = getMainDeclBinder (unL decl)
           in case () of
             _
@@ -480,7 +479,7 @@ mkExportItems
                    return []
 
               -- normal case
-              | otherwise -> return [ mkExportDecl t newDecl (doc, subs) ]
+              | otherwise -> return [ mkExportDecl t newDecl docs_ ]
                   where
                     -- A single signature might refer to many names, but we
                     -- create an export item for a single name only.  So we
@@ -493,7 +492,7 @@ mkExportItems
                       _                  -> decl
 
         -- Declaration from another package
-        [] -> do
+        ([], _) -> do
           mayDecl <- hiDecl t
           case mayDecl of
             Nothing -> return [ ExportNoDecl t [] ]
@@ -507,7 +506,7 @@ mkExportItems
                    let subs_ = [ (n, noDocForDecl) | (n, _, _) <- subordinates (unLoc decl) ]
                    return [ mkExportDecl t decl (noDocForDecl, subs_) ]
                 Just iface -> do
-                   return [ mkExportDecl t decl (exportDecl t (instDocMap iface) (instArgMap iface) (instSubMap iface)) ]
+                   return [ mkExportDecl t decl (lookupDocs t (instDocMap iface) (instArgMap iface) (instSubMap iface)) ]
 
         _ -> return []
 
@@ -524,13 +523,15 @@ mkExportItems
     isExported = (`elem` exportedNames)
 
 
-    findDecl :: Name -> [LHsDecl Name]
-    findDecl name
-      | mdl == thisMod = maybe [] id (M.lookup name declMap)
-      | Just iface <- M.lookup mdl modMap = maybe [] id (M.lookup name (ifaceDeclMap iface))
-      | otherwise = []
+    findDecl :: Name -> ([LHsDecl Name], (DocForDecl Name, [(Name, DocForDecl Name)]))
+    findDecl n
+      | m == thisMod, Just ds <- M.lookup n declMap =
+          (ds, lookupDocs n docMap argMap subMap)
+      | Just iface <- M.lookup m modMap, Just ds <- M.lookup n (ifaceDeclMap iface) =
+          (ds, lookupInstDocs n (ifaceDocMap iface) (ifaceArgMap iface) (ifaceSubMap iface))
+      | otherwise = ([], (noDocForDecl, []))
       where
-        mdl = nameModule name
+        m = nameModule n
 
 
 hiDecl :: Name -> ErrMsgGhc (Maybe (LHsDecl Name))
@@ -551,8 +552,9 @@ hiValExportItem name doc = do
     Just decl -> return (ExportDecl decl doc [] [])
 
 
-exportDecl :: Name -> DocMap Name -> ArgMap Name -> SubMap -> (DocForDecl Name, [(Name, DocForDecl Name)])
-exportDecl name docMap argMap subMap =
+-- | Lookup docs for a declaration from maps.
+lookupDocs :: Name -> DocMap Name -> ArgMap Name -> SubMap -> (DocForDecl Name, [(Name, DocForDecl Name)])
+lookupDocs name docMap argMap subMap =
   let lookupArgMap x = maybe M.empty id (M.lookup x argMap) in
   let doc = (M.lookup name docMap, lookupArgMap name) in
   let subs = [ (sub, (M.lookup sub docMap, lookupArgMap sub)) | sub <- maybe [] id (M.lookup name subMap) ] in
@@ -647,12 +649,12 @@ fullModuleContents dflags gre (docMap, argMap, subMap, declMap) decls =
     mkExportItem (L _ (ValD d))
       | name:_ <- collectHsBindBinders d, Just [L _ (ValD _)] <- M.lookup name declMap =
           -- Top-level binding without type signature.
-          let (doc, _) = exportDecl name docMap argMap subMap in
+          let (doc, _) = lookupDocs name docMap argMap subMap in
           fmap Just (hiValExportItem name doc)
       | otherwise = return Nothing
     mkExportItem decl
       | name:_ <- getMainDeclBinder (unLoc decl) =
-        let (doc, subs) = exportDecl name docMap argMap subMap in
+        let (doc, subs) = lookupDocs name docMap argMap subMap in
         return $ Just (ExportDecl decl doc subs [])
       | otherwise = return Nothing
 
