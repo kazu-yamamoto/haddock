@@ -528,7 +528,7 @@ mkExportItems
       | m == thisMod, Just ds <- M.lookup n declMap =
           (ds, lookupDocs n docMap argMap subMap)
       | Just iface <- M.lookup m modMap, Just ds <- M.lookup n (ifaceDeclMap iface) =
-          (ds, lookupInstDocs n (ifaceDocMap iface) (ifaceArgMap iface) (ifaceSubMap iface))
+          (ds, lookupDocs n (ifaceDocMap iface) (ifaceArgMap iface) (ifaceSubMap iface))
       | otherwise = ([], (noDocForDecl, []))
       where
         m = nameModule n
@@ -554,11 +554,12 @@ hiValExportItem name doc = do
 
 -- | Lookup docs for a declaration from maps.
 lookupDocs :: Name -> DocMap Name -> ArgMap Name -> SubMap -> (DocForDecl Name, [(Name, DocForDecl Name)])
-lookupDocs name docMap argMap subMap =
-  let lookupArgMap x = maybe M.empty id (M.lookup x argMap) in
-  let doc = (M.lookup name docMap, lookupArgMap name) in
-  let subs = [ (sub, (M.lookup sub docMap, lookupArgMap sub)) | sub <- maybe [] id (M.lookup name subMap) ] in
-  (doc, subs)
+lookupDocs n docMap argMap subMap =
+  let lookupArgDoc x = M.findWithDefault M.empty x argMap in
+  let doc = (M.lookup n docMap, lookupArgDoc n) in
+  let subs = M.findWithDefault [] n subMap in
+  let subDocs = [ (s, (M.lookup s docMap, lookupArgDoc s)) | s <- subs ]
+  in (doc, subDocs)
 
 
 -- | Return all export items produced by an exported module. That is, we're
