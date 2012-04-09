@@ -35,6 +35,7 @@ module Documentation.Haddock (
   -- * Documentation comments
   Doc(..),
   Example(..),
+  Property(..),
   DocMarkup(..),
   HaddockModInfo(..),
   markup,

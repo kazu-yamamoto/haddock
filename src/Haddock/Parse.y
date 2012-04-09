@@ -10,7 +10,7 @@
 module Haddock.Parse where
 
 import Haddock.Lex
-import Haddock.Types (Doc(..), Example(Example))
+import Haddock.Types (Doc(..), Example(Example), Property(Property))
 import Haddock.Doc
 import HsSyn
 import RdrName
@@ -37,6 +37,8 @@ import Data.List  (stripPrefix)
 	'>..'	{ (TokBirdTrack $$,_) }
 	PROMPT	{ (TokExamplePrompt $$,_) }
 	RESULT	{ (TokExampleResult $$,_) }
+	PPROMPT	{ (TokPropertyPrompt $$,_) }
+	PEXP	{ (TokPropertyExpression $$,_) }
 	EXP	{ (TokExampleExpression $$,_) }
 	IDENT   { (TokIdent $$,_) }
 	PARA    { (TokPara,_) }
@@ -74,6 +76,7 @@ para    :: { Doc RdrName }
 	: seq			{ docParagraph $1 }
 	| codepara		{ DocCodeBlock $1 }
 	| examples		{ DocExamples $1 }
+	| property		{ DocProperty $1 }
 
 codepara :: { Doc RdrName }
 	: '>..' codepara	{ docAppend (DocString $1) $2 }
@@ -90,6 +93,9 @@ example :: { Example }
 result :: { String }
 	: RESULT result		{ $1 ++ $2 }
 	| RESULT		{ $1 }
+
+property :: { Property }
+        : PPROMPT PEXP		{ makeProperty $2 }
 
 seq	:: { Doc RdrName }
 	: elem seq		{ docAppend $1 $2 }
@@ -143,6 +149,9 @@ makeExample prompt expression result =
 
 		substituteBlankLine "<BLANKLINE>" = ""
 		substituteBlankLine line          = line
+
+makeProperty :: String -> Property
+makeProperty expression = Property (strip expression)
 
 -- | Remove all leading and trailing whitespace
 strip :: String -> String

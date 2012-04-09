@@ -117,6 +117,7 @@ rename gre = rn
       DocPic str -> DocPic str
       DocAName str -> DocAName str
       DocExamples e -> DocExamples e
+      DocProperty e -> DocProperty e
       DocEmpty -> DocEmpty
       DocString str -> DocString str
 

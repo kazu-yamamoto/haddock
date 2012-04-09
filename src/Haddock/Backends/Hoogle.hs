@@ -245,7 +245,8 @@ markupTag = Markup {
   markupCodeBlock            = box TagPre,
   markupURL                  = box (TagInline "a") . str,
   markupAName                = const $ str "",
-  markupExample              = box TagPre . str . unlines . map exampleToString
+  markupExample              = box TagPre . str . unlines . map exampleToString,
+  markupProperty             = box TagPre . str . propertyToString
   }
 
 

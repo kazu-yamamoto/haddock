@@ -49,7 +49,8 @@ parHtmlMarkup qual ppId = Markup {
   markupURL                  = \url -> anchor ! [href url] << url,
   markupAName                = \aname -> namedAnchor aname << "",
   markupPic                  = \path -> image ! [src path],
-  markupExample              = examplesToHtml
+  markupExample              = examplesToHtml,
+  markupProperty             = propertyToHtml
   }
   where
     examplesToHtml l = pre (concatHtml $ map exampleToHtml l) ! [theclass "screen"]
@@ -60,6 +61,11 @@ parHtmlMarkup qual ppId = Markup {
         htmlPrompt = (thecode . toHtml $ ">>> ") ! [theclass "prompt"]
         htmlExpression = (strong . thecode . toHtml $ expression ++ "\n") ! [theclass "userinput"]
 
+    propertyToHtml (Property expression) = pre htmlProperty ! [theclass "screen"]
+      where
+        htmlProperty = htmlPrompt +++ htmlExpression
+        htmlPrompt = (thecode . toHtml $ "prop> ") ! [theclass "prompt"]
+        htmlExpression = (strong . thecode . toHtml $ expression ++ "\n") ! [theclass "userinput"]
 
 -- If the doc is a single paragraph, don't surround it with <P> (this causes
 -- ugly extra whitespace with some browsers).  FIXME: Does this still apply?

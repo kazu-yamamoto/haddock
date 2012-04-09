@@ -293,6 +293,7 @@ data Doc id
   | DocPic String
   | DocAName String
   | DocExamples [Example]
+  | DocProperty Property
   deriving (Functor)
 
 
@@ -315,6 +316,14 @@ exampleToString :: Example -> String
 exampleToString (Example expression result) =
     ">>> " ++ expression ++ "\n" ++  unlines result
 
+data Property = Property
+  { propertyExpression :: String
+  } deriving (Eq, Show)
+
+propertyToString :: Property -> String
+propertyToString (Property expression) =
+    "prop> " ++ expression ++ "\n"
+
 
 data DocMarkup id a = Markup
   { markupEmpty                :: a
@@ -335,6 +344,7 @@ data DocMarkup id a = Markup
   , markupAName                :: String -> a
   , markupPic                  :: String -> a
   , markupExample              :: [Example] -> a
+  , markupProperty             :: Property -> a
   }
 
 

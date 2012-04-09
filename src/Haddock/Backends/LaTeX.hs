@@ -1016,7 +1016,8 @@ parLatexMarkup ppId = Markup {
   markupCodeBlock            = \p _ -> quote (verb (p Verb)) $$ text "",
   markupURL                  = \u _ -> text "\\url" <> braces (text u),
   markupAName                = \_ _ -> empty,
-  markupExample              = \e _ -> quote $ verb $ text $ unlines $ map exampleToString e
+  markupExample              = \e _ -> quote $ verb $ text $ unlines $ map exampleToString e,
+  markupProperty             = \e _ -> quote $ verb $ text $ propertyToString e
   }
   where
     fixString Plain s = latexFilter s
