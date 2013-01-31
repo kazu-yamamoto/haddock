@@ -1,4 +1,5 @@
 {-# LANGUAGE TupleSections, BangPatterns #-}
+{-# OPTIONS_GHC -Wwarn #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  Haddock.Interface.Create
@@ -703,6 +704,7 @@ fullModuleContents dflags warnings gre (docMap, argMap, subMap, declMap) decls =
         f (L l (SigD (GenericSig names t))) xs = foldr (\n acc -> L l (SigD (GenericSig [n] t)) : acc) xs names
         f x xs = x : xs
 
+    mkExportItem :: LHsDecl Name -> ErrMsgGhc (Maybe (ExportItem Name))
     mkExportItem (L _ (DocD (DocGroup lev docStr))) = do
       mbDoc <- liftErrMsg $ processDocString dflags gre docStr
       return $ fmap (ExportGroup lev "") mbDoc
@@ -777,7 +779,7 @@ extractRecSel nm mdl t tvs (L _ con : rest) =
   data_ty = foldl (\x y -> noLoc (HsAppTy x y)) (noLoc (HsTyVar t)) (map toTypeNoLoc tvs)
 
 
--- | Keep exprt items with docs.
+-- | Keep export items with docs.
 pruneExportItems :: [ExportItem Name] -> [ExportItem Name]
 pruneExportItems = filter hasDoc
   where

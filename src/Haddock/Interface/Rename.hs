@@ -82,42 +82,41 @@ renameInterface dflags renamingEnv warnings iface =
 --------------------------------------------------------------------------------
 
 
-newtype GenRnM n a =
-  RnM { unRn :: (n -> (Bool, DocName))  -- name lookup function
-             -> (a,[n])
+newtype RnM a =
+  RnM { unRn :: (Name -> (Bool, DocName))  -- name lookup function
+             -> (a,[Name])
       }
 
-type RnM a = GenRnM Name a
-
-instance Monad (GenRnM n) where
+instance Monad RnM where
   (>>=) = thenRn
   return = returnRn
 
-instance Functor (GenRnM n) where
+instance Functor RnM where
   fmap f x = do a <- x; return (f a)
 
-instance Applicative (GenRnM n) where
+instance Applicative RnM where
   pure = return
   (<*>) = ap
 
-returnRn :: a -> GenRnM n a
+returnRn :: a -> RnM a
 returnRn a   = RnM (const (a,[]))
-thenRn :: GenRnM n a -> (a -> GenRnM n b) -> GenRnM n b
+thenRn :: RnM a -> (a -> RnM b) -> RnM b
 m `thenRn` k = RnM (\lkp -> case unRn m lkp of
   (a,out1) -> case unRn (k a) lkp of
     (b,out2) -> (b,out1++out2))
 
 getLookupRn :: RnM (Name -> (Bool, DocName))
 getLookupRn = RnM (\lkp -> (lkp,[]))
+
 outRn :: Name -> RnM ()
 outRn name = RnM (const ((),[name]))
 
-lookupRn :: (DocName -> a) -> Name -> RnM a
-lookupRn and_then name = do
+lookupRn :: Name -> RnM DocName
+lookupRn name = do
   lkp <- getLookupRn
   case lkp name of
-    (False,maps_to) -> do outRn name; return (and_then maps_to)
-    (True, maps_to) -> return (and_then maps_to)
+    (False,maps_to) -> do outRn name; return maps_to
+    (True, maps_to) -> return maps_to
 
 
 runRnFM :: LinkEnv -> RnM a -> (a,[Name])
@@ -134,7 +133,7 @@ runRnFM env rn = unRn rn lkp
 
 
 rename :: Name -> RnM DocName
-rename = lookupRn id
+rename = lookupRn
 
 
 renameL :: Located Name -> RnM (Located DocName)
@@ -199,9 +198,10 @@ renameDoc d = case d of
   DocCodeBlock doc -> do
     doc' <- renameDoc doc
     return (DocCodeBlock doc')
-  DocURL str -> return (DocURL str)
+  DocHyperlink l -> return (DocHyperlink l)
   DocPic str -> return (DocPic str)
   DocAName str -> return (DocAName str)
+  DocProperty p -> return (DocProperty p)
   DocExamples e -> return (DocExamples e)
 
 
@@ -270,8 +270,14 @@ renameType t = case t of
 
   HsTyLit x -> return (HsTyLit x)
 
-  _ -> error "renameType"
+  HsExplicitListTy a b    -> HsExplicitListTy a <$> mapM renameLType b
 
+  HsQuasiQuoteTy _        -> error "renameType: HsQuasiQuoteTy"
+  HsSpliceTy _ _ _        -> error "renameType: HsSpliceTy"
+  HsRecTy _               -> error "renameType: HsRecTy"
+  HsCoreTy _              -> error "renameType: HsCoreTy"
+  HsExplicitTupleTy _ _   -> error "renameType: HsExplicitTupleTy"
+  HsWrapTy _ _            -> error "renameType: HsWrapTy"
 
 renameLTyVarBndrs :: LHsTyVarBndrs Name -> RnM (LHsTyVarBndrs DocName)
 renameLTyVarBndrs (HsQTvs { hsq_kvs = _, hsq_tvs = tvs })
@@ -498,8 +504,8 @@ renameExportItem item = case item of
       return (inst', idoc')
     return (ExportDecl decl' doc' subs' instances')
   ExportNoDecl x subs -> do
-    x'    <- lookupRn id x
-    subs' <- mapM (lookupRn id) subs
+    x'    <- lookupRn x
+    subs' <- mapM lookupRn subs
     return (ExportNoDecl x' subs')
   ExportDoc doc -> do
     doc' <- renameDoc doc

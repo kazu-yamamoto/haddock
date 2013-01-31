@@ -303,9 +303,10 @@ data Doc id
   | DocOrderedList [Doc id]
   | DocDefList [(Doc id, Doc id)]
   | DocCodeBlock (Doc id)
-  | DocURL String
+  | DocHyperlink Hyperlink
   | DocPic String
   | DocAName String
+  | DocProperty String
   | DocExamples [Example]
   deriving (Functor)
 
@@ -313,6 +314,12 @@ data Doc id
 instance Monoid (Doc id) where
   mempty  = DocEmpty
   mappend = DocAppend
+
+
+data Hyperlink = Hyperlink
+  { hyperlinkUrl   :: String
+  , hyperlinkLabel :: Maybe String
+  } deriving (Eq, Show)
 
 
 data Example = Example
@@ -341,9 +348,10 @@ data DocMarkup id a = Markup
   , markupOrderedList          :: [a] -> a
   , markupDefList              :: [(a,a)] -> a
   , markupCodeBlock            :: a -> a
-  , markupURL                  :: String -> a
+  , markupHyperlink            :: Hyperlink -> a
   , markupAName                :: String -> a
   , markupPic                  :: String -> a
+  , markupProperty             :: String -> a
   , markupExample              :: [Example] -> a
   }
 

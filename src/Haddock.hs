@@ -1,8 +1,8 @@
 {-# OPTIONS_GHC -Wwarn #-}
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE CPP, ScopedTypeVariables #-}
 -----------------------------------------------------------------------------
 -- |
--- Module      :  Main
+-- Module      :  Haddock
 -- Copyright   :  (c) Simon Marlow 2003-2006,
 --                    David Waern  2006-2010
 -- License     :  BSD-like
@@ -15,7 +15,7 @@
 --
 -- Program entry point and top-level code.
 -----------------------------------------------------------------------------
-module Main (main, readPackagesAndProcessModules) where
+module Haddock (haddock, readPackagesAndProcessModules, withGhc') where
 
 
 import Haddock.Backends.Xhtml
@@ -32,14 +32,14 @@ import Haddock.Options
 import Haddock.Utils
 import Haddock.GhcUtils hiding (pretty)
 
-import Control.Monad
+import Control.Monad hiding (forM_)
+import Data.Foldable (forM_)
 import Control.Exception
 import Data.Maybe
 import Data.IORef
 import qualified Data.Map as Map
 import System.IO
 import System.Exit
-import System.Environment
 
 #if defined(mingw32_HOST_OS)
 import Foreign
@@ -60,9 +60,6 @@ import DynFlags hiding (verbosity)
 import StaticFlags (saveStaticFlagGlobals, restoreStaticFlagGlobals)
 import Panic (handleGhcException)
 import Module
-
-import Control.Monad.Fix (MonadFix)
-
 
 --------------------------------------------------------------------------------
 -- * Exception handling
@@ -123,27 +120,23 @@ handleGhcExceptions =
 -------------------------------------------------------------------------------
 
 
-main :: IO ()
-main = handleTopExceptions $ do
+-- | Run Haddock with given list of arguments.
+--
+-- Haddock's own main function is defined in terms of this:
+--
+-- > main = getArgs >>= haddock
+haddock :: [String] -> IO ()
+haddock args = handleTopExceptions $ do
 
   -- Parse command-line flags and handle some of them initially.
   -- TODO: unify all of this (and some of what's in the 'render' function),
   -- into one function that returns a record with a field for each option,
   -- or which exits with an error or help message.
-  args <- getArgs
   (flags, files) <- parseHaddockOpts args
   shortcutFlags flags
   qual <- case qualification flags of {Left msg -> throwE msg; Right q -> return q}
 
-  libDir <- fmap snd (getGhcDirs flags)
-
-  -- Catches all GHC source errors, then prints and re-throws them.
-  let handleSrcErrors action' = flip handleSourceError action' $ \err -> do
-        printException err
-        liftIO exitFailure
-
-  -- Initialize GHC.
-  withGhc libDir (ghcFlags flags) $ \_ -> handleSrcErrors $ do
+  withGhc' flags $ do
 
     dflags <- getDynFlags
 
@@ -151,9 +144,11 @@ main = handleTopExceptions $ do
       (packages, ifaces, homeLinks) <- readPackagesAndProcessModules flags files
 
       -- Dump an "interface file" (.haddock file), if requested.
-      case optDumpInterfaceFile flags of
-        Just f -> liftIO $ dumpInterfaceFile f (map toInstalledIface ifaces) homeLinks
-        Nothing -> return ()
+      forM_ (optDumpInterfaceFile flags) $ \path -> liftIO $ do
+        writeInterfaceFile path InterfaceFile {
+            ifInstalledIfaces = map toInstalledIface ifaces
+          , ifLinkEnv         = homeLinks
+          }
 
       -- Render the interfaces.
       liftIO $ renderStep dflags flags qual packages ifaces
@@ -167,6 +162,18 @@ main = handleTopExceptions $ do
 
       -- Render even though there are no input files (usually contents/index).
       liftIO $ renderStep dflags flags qual packages []
+
+
+withGhc' :: [Flag] -> Ghc a -> IO a
+withGhc' flags action = do
+  libDir <- fmap snd (getGhcDirs flags)
+
+  -- Catches all GHC source errors, then prints and re-throws them.
+  let handleSrcErrors action' = flip handleSourceError action' $ \err -> do
+        printException err
+        liftIO exitFailure
+
+  withGhc libDir (ghcFlags flags) (\_ -> handleSrcErrors action)
 
 
 readPackagesAndProcessModules :: [Flag] -> [String]
@@ -260,13 +267,12 @@ render dflags flags qual ifaces installedIfaces srcMap = do
 -------------------------------------------------------------------------------
 
 
-readInterfaceFiles :: (MonadFix m, MonadIO m) =>
-                      NameCacheAccessor m
-                   -> [(DocPaths, FilePath)] ->
-                      m [(DocPaths, InterfaceFile)]
+readInterfaceFiles :: MonadIO m
+                   => NameCacheAccessor m
+                   -> [(DocPaths, FilePath)]
+                   -> m [(DocPaths, InterfaceFile)]
 readInterfaceFiles name_cache_accessor pairs = do
-  mbPackages <- mapM tryReadIface pairs
-  return (catMaybes mbPackages)
+  catMaybes `liftM` mapM tryReadIface pairs
   where
     -- try to read an interface, warn if we can't
     tryReadIface (paths, file) = do
@@ -278,15 +284,6 @@ readInterfaceFiles name_cache_accessor pairs = do
           putStrLn "Skipping this interface."
           return Nothing
         Right f -> return $ Just (paths, f)
-
-
-dumpInterfaceFile :: FilePath -> [InstalledInterface] -> LinkEnv -> IO ()
-dumpInterfaceFile path ifaces homeLinks = writeInterfaceFile path ifaceFile
-  where
-    ifaceFile = InterfaceFile {
-        ifInstalledIfaces = ifaces,
-        ifLinkEnv         = homeLinks
-      }
 
 
 -------------------------------------------------------------------------------

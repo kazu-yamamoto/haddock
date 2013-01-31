@@ -1,23 +1,25 @@
+import Prelude hiding (mod)
 import Control.Monad
 import Data.List
 import Data.Maybe
 import Distribution.InstalledPackageInfo
-import Distribution.Package
+import Distribution.Package (PackageName (..))
 import Distribution.Simple.Compiler
 import Distribution.Simple.GHC
 import Distribution.Simple.PackageIndex
 import Distribution.Simple.Program
 import Distribution.Simple.Utils
 import Distribution.Verbosity
+import System.IO
 import System.Cmd
 import System.Directory
 import System.Environment
 import System.Exit
 import System.FilePath
-import System.Process
-import Text.Printf
+import System.Process (ProcessHandle, runProcess, waitForProcess)
 
 
+packageRoot, haddockPath, testSuiteRoot, testDir, outDir :: FilePath
 packageRoot   = "."
 haddockPath   = packageRoot </> "dist" </> "build" </> "haddock" </> "haddock"
 testSuiteRoot = packageRoot </> "tests" </> "html-tests"
@@ -25,11 +27,13 @@ testDir       = testSuiteRoot </> "tests"
 outDir        = testSuiteRoot </> "output"
 
 
+main :: IO ()
 main = do
   test
   putStrLn "All tests passed!"
 
 
+test :: IO ()
 test = do
   x <- doesFileExist haddockPath
   unless x $ die "you need to run 'cabal build' successfully first"
@@ -39,34 +43,37 @@ test = do
   let (opts, spec) = span ("-" `isPrefixOf`) args
   let mods =
         case spec of
-          x:_ | x /= "all" -> [x ++ ".hs"]
+          y:_ | y /= "all" -> [y ++ ".hs"]
           _ -> filter ((==) ".hs" . takeExtension) contents
 
   let mods' = map (testDir </>) mods
+
+  env_ <- getEnvironment
+  let env = Just (("haddock_datadir", packageRoot) : env_)
+
   putStrLn ""
   putStrLn "Haddock version: "
   h1 <- runProcess haddockPath ["--version"] Nothing
-                   (Just [("haddock_datadir", packageRoot)]) Nothing Nothing Nothing
-  waitForProcess h1
+                   env Nothing Nothing Nothing
+  wait h1 "*** Running `haddock --version' failed!"
   putStrLn ""
   putStrLn "GHC version: "
   h2 <- runProcess haddockPath ["--ghc-version"] Nothing
-                   (Just [("haddock_datadir", packageRoot)]) Nothing Nothing Nothing
-  waitForProcess h2
+                   env Nothing Nothing Nothing
+  wait h2 "*** Running `haddock --ghc-version' failed!"
   putStrLn ""
 
   -- TODO: maybe do something more clever here using haddock.cabal
   ghcPath <- fmap init $ rawSystemStdout normal haddockPath ["--print-ghc-path"]
   (_, conf) <- configure normal (Just ghcPath) Nothing defaultProgramConfiguration
   pkgIndex <- getInstalledPackages normal [GlobalPackageDB] conf
-  let safeHead xs = case xs of x : _ -> Just x; [] -> Nothing
   let mkDep pkgName =
-        maybe (error "Couldn't find test dependencies") id $ do
+        fromMaybe (error "Couldn't find test dependencies") $ do
           let pkgs = lookupPackageName pkgIndex (PackageName pkgName)
-          (_, pkgs') <- safeHead pkgs
-          pkg <- safeHead pkgs'
-          ifacePath <- safeHead (haddockInterfaces pkg)
-          htmlPath <- safeHead (haddockHTMLs pkg)
+          (_, pkgs') <- listToMaybe pkgs
+          pkg <- listToMaybe pkgs'
+          ifacePath <- listToMaybe (haddockInterfaces pkg)
+          htmlPath <- listToMaybe (haddockHTMLs pkg)
           return ("-i " ++ htmlPath ++ "," ++ ifacePath)
 
   let base    = mkDep "base"
@@ -77,14 +84,20 @@ test = do
   handle <- runProcess haddockPath
                        (["-w", "-o", outDir, "-h", "--pretty-html", "--optghc=-fglasgow-exts"
                         , "--optghc=-w", base, process, ghcprim] ++ opts ++ mods')
-                       Nothing (Just [("haddock_datadir", packageRoot)]) Nothing
+                       Nothing env Nothing
                        Nothing Nothing
 
-  code <- waitForProcess handle
-  when (code /= ExitSuccess) $ error "Haddock run failed! Exiting."
+  wait handle "*** Haddock run failed! Exiting."
   check mods (if not (null args) && args !! 0 == "all" then False else True)
+  where
+    wait :: ProcessHandle -> String -> IO ()
+    wait h msg = do
+      r <- waitForProcess h
+      unless (r == ExitSuccess) $ do
+        hPutStrLn stderr msg
+        exitFailure
 
-
+check :: [FilePath] -> Bool -> IO ()
 check modules strict = do
   forM_ modules $ \mod -> do
     let outfile = outDir  </> dropExtension mod ++ ".html"
@@ -104,19 +117,24 @@ check modules strict = do
                 outfile' = outDir </> takeFileName outfile ++ ".nolinks"
             writeFile reffile' ref'
             writeFile outfile' out'
-            b <- programOnPath "colordiff"
-            if b
+            r <- programOnPath "colordiff"
+            code <- if r
               then system $ "colordiff " ++ reffile' ++ " " ++ outfile'
               else system $ "diff " ++ reffile' ++ " " ++ outfile'
             if strict then exitFailure else return ()
+            unless (code == ExitSuccess) $ do
+              hPutStrLn stderr "*** Running diff failed!"
+              exitFailure
           else do
             putStrLn $ "Pass: " ++ mod
       else do
         putStrLn $ "Pass: " ++ mod ++ " (no .ref file)"
 
 
+haddockEq :: String -> String -> Bool
 haddockEq file1 file2 = stripLinks file1 == stripLinks file2
 
+stripLinks :: String -> String
 stripLinks str =
   let prefix = "<a href=\"" in
   case stripPrefix prefix str of
@@ -126,7 +144,7 @@ stripLinks str =
         [] -> []
         x : xs -> x : stripLinks xs
 
+programOnPath :: FilePath -> IO Bool
 programOnPath p = do
   result <- findProgramLocation silent p
   return (isJust result)
-
